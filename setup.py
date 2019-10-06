@@ -9,7 +9,7 @@ README = (HERE / "README.md").read_text()
 
 setup(
 	name = "PLLParser",
-	version = "0.1.0",
+	version = "0.1.1",
 	author = "John Deighan",
 	author_email = "john.deighan@gmail.com",
 	description = "Parse a Python-like language",
@@ -19,7 +19,7 @@ setup(
 
 	url = "https://github.com/johndeighan/PLLParser",
 	packages = find_packages(),
-	py_modules = ['TreeNode','RETokenizer','PLLParser'],
+	py_modules = ['myutils','TreeNode','RETokenizer','PLLParser'],
 	classifiers = [
 		"Programming Language :: Python :: 3",
 		"License :: OSI Approved :: MIT License",
