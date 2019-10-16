@@ -3,6 +3,10 @@
 import os, sys, re, pytest
 from typing import Pattern
 
+from parserUtils import runningUnitTests, getVersion
+
+__version__ = getVersion()
+
 class RETokenizer():
 
 	def __init__(self, skipWS=True):
@@ -25,6 +29,7 @@ class RETokenizer():
 		else:
 			assert isinstance(regexp, Pattern)
 		self.lTokenTypes.append( [tokenType, regexp, groupNum, func] )
+		return self    # allow chaining
 
 	# ------------------------------------------------------------------------
 
@@ -86,7 +91,7 @@ class RETokenizer():
 #                   UNIT TESTS
 # ---------------------------------------------------------------------------
 
-if sys.argv[0].find('pytest') > -1:
+if runningUnitTests:
 
 	def test_1():
 
@@ -192,6 +197,26 @@ if sys.argv[0].find('pytest') > -1:
 		tokzr.add('STRING',  r"'([^']*)'", 1)
 		tokzr.add('HEREDOC', r'<<<')
 		tokzr.add('OP',      r'\+|-|\*|\/')
+
+		lTokens = list(tokzr.tokens('<<< + 23 % 5'))
+		assert lTokens == [
+			['HEREDOC', '<<<'],
+			['OP',  '+'],
+			['INTEGER', 23],
+			['OTHER', '%'],
+			['INTEGER', 5],
+			]
+
+	def test_8():
+		# --- Test chaining calls to add
+
+		tokzr = (RETokenizer()
+			.add('INTEGER', r'\d+', 0, int)
+			.add('STRING',  r'"([^"]*)"', 1)
+			.add('STRING',  r"'([^']*)'", 1)
+			.add('HEREDOC', r'<<<')
+			.add('OP',      r'\+|-|\*|\/')
+			)
 
 		lTokens = list(tokzr.tokens('<<< + 23 % 5'))
 		assert lTokens == [

@@ -1,6 +1,6 @@
 # parserUtils.py
 
-import sys, re, io, pytest
+import sys, re, io, pytest, json
 
 reAllWS      = re.compile(r'^\s*$')
 reLeadWS     = re.compile(r'^([\t\ ]+)')   # don't consider '\n'
@@ -9,13 +9,20 @@ reTrailWS    = re.compile(r'\s+$')
 reTrailNL    = re.compile(r'\n$')
 reNonSepChar = re.compile(r'^[A-Za-z0-9_\s]')
 reFirstWord  = re.compile(r'^\s*(\S+)')
-reAssign     = re.compile(r'^\s*(\S+)\s*\=\s*(.*)$')
 reChomp2     = re.compile(r'^(\s*)(.*)$')
 hSpecial = {
 	"\t": "\\t",
 	"\n": "\\n",
 	" " : "\\s",
 	}
+
+# ---------------------------------------------------------------------------
+
+def getVersion(filepath='./version.json'):
+
+	with open(filepath) as fh:
+		hJson = json.load(fh)
+		return hJson['version']
 
 # ---------------------------------------------------------------------------
 
@@ -29,9 +36,9 @@ def chomp(line):
 
 	assert type(line) == str
 	if line[-1] == '\n':
-		return line[0:-1]
+		return line[0:-1].rstrip()
 	else:
-		return line
+		return line.rstrip()
 
 # ---------------------------------------------------------------------------
 
@@ -42,17 +49,6 @@ def chomp2(line):
 	result = reChomp2.match(line)
 	assert result    # should always match
 	return result.group(1), result.group(2)  # prefix, label
-
-# ---------------------------------------------------------------------------
-
-def splitAssignment(s):
-
-	assert type(s) == str
-	result = reAssign.search(s)
-	if result:
-		return (result.group(1), result.group(2))
-	else:
-		raise Exception(f"String '{s}' is not an assignment statement")
 
 # ---------------------------------------------------------------------------
 
@@ -284,6 +280,8 @@ def traceStr(str, *, maxchars=0, detailed=False):
 		nChars += 1
 	return outstr
 
+__version__ = getVersion()
+
 # ---------------------------------------------------------------------------
 #                  UNIT TESTS
 # ---------------------------------------------------------------------------
@@ -426,22 +424,3 @@ if runningUnitTests:
 		assert ("   abc xyz  ".split()[1] == 'xyz')
 		assert ("   房子 窗口  ".split()[0] == '房子')
 		assert ("   房子 窗口  ".split()[1] == '窗口')
-
-	def test_9():
-		assert splitAssignment("x = 9") == ('x', '9')
-		assert splitAssignment("xxx = 90") == ('xxx', '90')
-		assert splitAssignment("  x   =   9") == ('x', '9')
-		assert splitAssignment("x=9") == ('x', '9')
-
-	def test_10():
-		with pytest.raises(Exception):
-			result = splitAssignment("x9")
-
-	def test_11():
-		try:
-			(key, value) = splitAssignment('name = editor')
-			assert key == 'name'
-			assert value == 'editor'
-		except:
-			raise Exception("Very Bad")
-

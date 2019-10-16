@@ -1,15 +1,22 @@
 # setup.py
 
-import sys, pathlib
+import sys, pathlib, json
 from setuptools import setup, find_packages
 
 # --- Get the text of README.md
 HERE = pathlib.Path(__file__).parent
 README = (HERE / "README.md").read_text()
 
+# --- Get the version number
+
+version = ''
+with open('./version.json') as fh:
+	hJson = json.load(fh)
+	version = hJson['version']
+
 setup(
 	name = "PLLParser",
-	version = "0.1.1",
+	version = version,
 	author = "John Deighan",
 	author_email = "john.deighan@gmail.com",
 	description = "Parse a Python-like language",

@@ -7,13 +7,16 @@ parse a 'Python-like language'
 import sys, io, re, pytest
 from more_itertools import ilen
 from pprint import pprint
+from typing import Pattern
 
 from TreeNode import TreeNode
-sys.path.append('.')   # for some reason, unit tests fail without this
+from RETokenizer import RETokenizer
 from parserUtils import (
-		rmPrefix, reLeadWS, isAllWhiteSpace,
-		traceStr, firstWordOf
+		reLeadWS, isAllWhiteSpace, getVersion,
+		traceStr, firstWordOf, chomp2, runningUnitTests
 		)
+
+__version__ = getVersion()
 
 # ---------------------------------------------------------------------------
 
@@ -21,7 +24,8 @@ def parsePLL(fh, constructor=TreeNode, *,
              debug=False,
              **kwargs):
 
-	assert isinstance(constructor('label'), TreeNode)
+	obj = constructor('label')
+	assert isinstance(obj , TreeNode)
 	return PLLParser(constructor,
 	                 debug=debug,
 	                 **kwargs
@@ -31,15 +35,14 @@ def parsePLL(fh, constructor=TreeNode, *,
 
 class PLLParser():
 
-	# --- We want to compile these just once, so make them class fields
-	reLine = re.compile(r'^(\s*)')
-
 	# --- These are the only recognized options
 	hDefOptions = {
 		# --- These become attributes of the PLLParser object
-		'markStr':    '*',
-		'reComment':  None,
-		'reAttr':     None,
+		'markStr':      '*',
+		'hereDocToken': None,
+		'reComment':    None,
+		'reAttr':       None,
+		'tokenizer':    None,
 		}
 
 	# ------------------------------------------------------------------------
@@ -64,6 +67,14 @@ class PLLParser():
 		for name in self.hDefOptions.keys():
 			if name in hOptions:
 				value = hOptions[name]
+
+				# --- Do some type checking
+				if name == 'tokenizer':
+					assert isinstance(value, RETokenizer)
+				elif name in ('markStr','hereDocToken'):
+					assert type(value) == str
+				elif name in ('reComment','reAttr'):
+					assert isinstance(value, Pattern)
 			else:
 				value = self.hDefOptions[name]
 			setattr(self, name, value)
@@ -74,6 +85,7 @@ class PLLParser():
 		# --- Returns (rootNode, hSubTrees)
 
 		self.numLines = 0
+
 		reAttr = self.reAttr
 
 		rootNode = curNode = None
@@ -94,9 +106,11 @@ class PLLParser():
 
 			# --- process first non-empty line
 			if rootNode == None:
-				rootNode = curNode = self.constructor(label)
+				rootNode = curNode = self.mknode(label)
 
-				# --- This wouldn't make any sense, but in case someone does it
+				# --- This wouldn't make any sense, because the root node
+				#     is returned whether it's marked or not,
+				#     but in case someone does it
 				if marked:
 					hSubTrees[firstWordOf(label)] = curNode
 
@@ -133,7 +147,7 @@ class PLLParser():
 				if debug:
 					print(f"   - new child of {curNode.asDebugString()}")
 				assert not curNode.firstChild
-				curNode = self.constructor(label).makeChildOf(curNode)
+				curNode = self.mknode(label).makeChildOf(curNode)
 				if marked:
 					hSubTrees[firstWordOf(label)] = curNode
 				curLevel += 1
@@ -148,7 +162,7 @@ class PLLParser():
 					curLevel -= 1
 					curNode = curNode.parent
 					assert curNode
-				curNode = self.constructor(label).makeSiblingOf(curNode)
+				curNode = self.mknode(label).makeSiblingOf(curNode)
 				if marked:
 					hSubTrees[firstWordOf(label)] = curNode
 			elif diff == 0:
@@ -156,7 +170,7 @@ class PLLParser():
 				if debug:
 					print(f"   - new sibling of {curNode.asDebugString()}")
 				assert not curNode.nextSibling
-				curNode = self.constructor(label).makeSiblingOf(curNode)
+				curNode = self.mknode(label).makeSiblingOf(curNode)
 				if marked:
 					hSubTrees[firstWordOf(label)] = curNode
 
@@ -171,6 +185,20 @@ class PLLParser():
 
 		assert isinstance(rootNode, self.constructor)
 		return (rootNode, hSubTrees)
+
+	# ------------------------------------------------------------------------
+
+	def mknode(self, label):
+
+		constructor = self.constructor
+		assert constructor
+		tokenizer = self.tokenizer
+		hereDocToken = self.hereDocToken
+
+		node = constructor(label)
+		if tokenizer:
+			node['lTokens'] = list(tokenizer.tokens(label))
+		return node
 
 	# ------------------------------------------------------------------------
 
@@ -231,34 +259,25 @@ class PLLParser():
 		# --- returns (level, label, marked)
 		#     label will have markStr removed
 
+		markStr = self.markStr
+
+		(indent, label) = chomp2(line)
+		if ' ' in indent:
+			raise SyntaxError(f"Indentation '{traceStr(indent)}'"
+									 " cannot contain space chars")
+		level = len(indent)
+
+		# --- Check if the mark string is present
+		#     If so, strip it to get label, then set key = label
 		marked = False
-		result = self.reLine.search(line)
-		if result:
+		if markStr:
+			if (label.find(markStr) == 0):
+				label = label[len(self.markStr):].lstrip()
+				if len(label) == 0:
+					raise SyntaxError("Marked lines cannot be empty")
+				marked = True
 
-			# --- Get indentation, if any, to determine level
-			indent = result.group(1)
-			if ' ' in indent:
-				raise SyntaxError(f"Indentation '{traceStr(indent)}'"
-										 " cannot contain space chars")
-			level = len(indent)
-
-			# --- Check if the mark string is present
-			#     If so, strip it to get label, then set key = label
-			if self.markStr:
-				if line.find(self.markStr, level) == level:
-					label = line[level + len(self.markStr):].lstrip()
-					if len(label) == 0:
-						raise SyntaxError("Marked lines cannot be empty")
-					marked = True
-				else:
-					label = line[level:]
-			else:
-				label = line[level:]
-
-			label = label.replace('\\#', '#')
-			return (level, label, marked)
-		else:
-			raise Exception("What! This cannot happen (reLine fails to match)")
+		return (level, label, marked)
 
 	# ---------------------------------------------------------------------------
 
@@ -298,7 +317,7 @@ class PLLParser():
 #                   UNIT TESTS
 # ---------------------------------------------------------------------------
 
-if sys.argv[0].find('pytest') > -1:
+if runningUnitTests():
 
 	def test_1():
 		(tree, hSubTrees) = parsePLL('''
@@ -482,7 +501,7 @@ if sys.argv[0].find('pytest') > -1:
 		assert n == 3
 
 		assert tree['label'] == 'bg'
-		assert tree.firstChild['label'] == 'color = #abcdef'
+		assert tree.firstChild['label'] == 'color = \\#abcdef'
 		assert tree.firstChild.nextSibling['label'] == 'graph'
 
 	# ------------------------------------------------------------------------
@@ -560,6 +579,32 @@ if sys.argv[0].find('pytest') > -1:
 				'life': '42',
 				'meaning': '42',
 				}
+
+	# ------------------------------------------------------------------------
+	# Test tokenizing
+
+	def test_10():
+
+		tokzr = RETokenizer()
+		assert tokzr
+		tokzr.add('IDENTIFIER', r'[A-Za-z][A-Za-z0-9_]*')
+		tokzr.add('INTEGER', r'\d+', 0, int)
+		tokzr.add('STRING',  r'"([^"]*)"', 1)
+		tokzr.add('STRING',  r"'([^']*)'", 1)
+
+		(node, hSubTrees) = parsePLL('''
+			x = 23 + 19
+			print(x)
+			''', tokenizer=tokzr)
+
+		lTokens = list(node.tokens())
+		assert lTokens == [
+			['IDENTIFIER', 'x'],
+			['OTHER',  '='],
+			['INTEGER', 23],
+			['OTHER', '+'],
+			['INTEGER', 19],
+			]
 
 # ---------------------------------------------------------------------------
 

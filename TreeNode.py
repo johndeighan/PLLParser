@@ -3,10 +3,12 @@
 import sys, re, pytest, collections
 from more_itertools import ilen
 
-sys.path.append('.')   # for some reason, unit tests fail without this
-from parserUtils import rmPrefix, isAllWhiteSpace, runningUnitTests
+from parserUtils import (
+	rmPrefix, isAllWhiteSpace, runningUnitTests, getVersion
+	)
 
 reAssign = re.compile(r'^(\S+)\s*\=\s*(.*)$')
+__version__ = getVersion()
 
 class TreeNode(collections.abc.MutableMapping):
 	# --- These are a Class variables -------------------
@@ -201,6 +203,17 @@ class TreeNode(collections.abc.MutableMapping):
 				s += (indent * level) + node.hData['label'] + '\n'
 			cur = cur.nextSibling
 		return s
+
+	def tokens(self):
+		# --- If it has key lTokens, it should be a list of tokens
+
+		lTokens = self['lTokens']
+		if not lTokens:
+			return
+
+		assert type(lTokens) == list
+		for item in lTokens:
+			yield item
 
 	# ------------------------------------------------------------------------
 	#      Utility Methods
