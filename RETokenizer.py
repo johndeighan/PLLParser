@@ -5,21 +5,26 @@ from typing import Pattern
 
 class RETokenizer():
 
-	def __init__(self):
+	def __init__(self, skipWS=True):
 		# --- Entries are ( <tokenType>, <regexp>, <groupNum> )
 		self.lTokenTypes = []
+		self.skipWS = skipWS
 
 	# ------------------------------------------------------------------------
 
-	def add(self, tokenType, regexp, groupNum=0):
+	def add(self, tokenType, regexp, groupNum=0, func=None):
+		# --- func, if set, should be a function to convert the
+		#     found string into whatever you want
 
 		assert type(tokenType) == str
 		assert tokenType != 'OTHER'
+		if func:
+			assert callable(func)
 		if type(regexp) == str:
 			regexp = re.compile(regexp)
 		else:
 			assert isinstance(regexp, Pattern)
-		self.lTokenTypes.append( (tokenType, regexp, groupNum) )
+		self.lTokenTypes.append( [tokenType, regexp, groupNum, func] )
 
 	# ------------------------------------------------------------------------
 
@@ -34,7 +39,7 @@ class RETokenizer():
 
 	# ------------------------------------------------------------------------
 
-	def tokens(self, line, *, skipWS=True, debug=False):
+	def tokens(self, line, *, debug=False):
 
 		assert type(line) == str
 		if debug:
@@ -44,7 +49,7 @@ class RETokenizer():
 			if debug:
 				print(f"pos: {pos}")
 			match = None
-			for (tokenType, regexp, groupNum) in self.lTokenTypes:
+			for (tokenType, regexp, groupNum, func) in self.lTokenTypes:
 				match = regexp.match(line, pos)
 				if match:
 					matched = match[groupNum]
@@ -54,11 +59,14 @@ class RETokenizer():
 					if matchLen == 0:
 						raise Exception("Zero length string matched")
 					pos += matchLen
-					yield (tokenType, matched)
+					if func:
+						yield [tokenType, func(matched)]
+					else:
+						yield [tokenType, matched]
 					break
 				else:
 					if debug:
-						print(f"...{tokenType}: failed")
+						print(f"...{tokenType}: match failed")
 
 			if not match:
 				# --- No match
@@ -66,66 +74,130 @@ class RETokenizer():
 				#     else yield as a single character token
 				ch = line[pos]
 				pos += 1
-				if skipWS and ((ch == ' ') or (ch == '\t')):
+				if((ch == ' ') or (ch == '\t')) and self.skipWS:
 					if debug:
 						print(f"...skipping whitespace")
 				else:
 					if debug:
 						print(f"...OTHER: found '{ch}'")
-					yield ('OTHER', ch)
+					yield ['OTHER', ch]
 
 # ---------------------------------------------------------------------------
 #                   UNIT TESTS
 # ---------------------------------------------------------------------------
 
-def test_1():
+if sys.argv[0].find('pytest') > -1:
 
-	tokzr = RETokenizer()
-	lTokens = list(tokzr.tokens('abc'))
-	assert lTokens == [
-		('OTHER', 'a'),
-		('OTHER', 'b'),
-		('OTHER', 'c'),
-		]
+	def test_1():
 
-def test_2():
+		tokzr = RETokenizer()
 
-	tokzr = RETokenizer()
-	tokzr.add('INTEGER', r'\d+')
-	tokzr.add('STRING', r'"([^"]*)"', 1)
-	lTokens = list(tokzr.tokens('"mystring" * 23'))
-	assert lTokens == [
-		('STRING', 'mystring'),
-		('OTHER',   '*'),
-		('INTEGER', '23'),
-		]
+		# --- No tokens added, so match single characters
+		lTokens = list(tokzr.tokens('abc'))
+		assert lTokens == [
+			['OTHER', 'a'],
+			['OTHER', 'b'],
+			['OTHER', 'c'],
+			]
 
-def test_3():
+		# --- No tokens added, so match single characters, skipping whitespace
+		lTokens = list(tokzr.tokens('a b\tc'))
+		assert lTokens == [
+			['OTHER', 'a'],
+			['OTHER', 'b'],
+			['OTHER', 'c'],
+			]
 
-	tokzr = RETokenizer()
-	tokzr.add('INTEGER', r'\d+')
-	tokzr.add('STRING',  r'"([^"]*)"', 1)
-	lTokens = list(tokzr.tokens('"mystring" * 23', skipWS=False))
-	assert lTokens == [
-		('STRING', 'mystring'),
-		('OTHER',  ' '),
-		('OTHER',   '*'),
-		('OTHER',  ' '),
-		('INTEGER', '23'),
-		]
+	def test_2():
 
-def test_4():
+		tokzr = RETokenizer(skipWS=False)
 
-	tokzr = RETokenizer()
-	tokzr.add('INTEGER', r'\d+')
-	tokzr.add('STRING',  r'"([^"]*)"', 1)
-	tokzr.add('STRING',  r"'([^']*)'", 1)
+		# --- No tokens added, so match single characters,
+		#     but NOT skipping whitespace
+		lTokens = list(tokzr.tokens('a b\tc'))
+		assert lTokens == [
+			['OTHER', 'a'],
+			['OTHER', ' '],
+			['OTHER', 'b'],
+			['OTHER', '\t'],
+			['OTHER', 'c'],
+			]
 
-	lTokens = list(tokzr.tokens('"mystring"'
-                               ' + '
-                               "'other'"))
-	assert lTokens == [
-		('STRING', 'mystring'),
-		('OTHER',  '+'),
-		('STRING', 'other'),
-		]
+	def test_3():
+
+		tokzr = RETokenizer()
+		tokzr.add('INTEGER', r'\d+')
+		tokzr.add('STRING', r'"([^"]*)"', 1)
+		lTokens = list(tokzr.tokens('"mystring" * 23'))
+		assert lTokens == [
+			['STRING', 'mystring'],
+			['OTHER',   '*'],
+			['INTEGER', '23'],
+			]
+
+	def test_4():
+
+		tokzr = RETokenizer(skipWS=False)
+		tokzr.add('INTEGER', r'\d+')
+		tokzr.add('STRING',  r'"([^"]*)"', 1)
+		lTokens = list(tokzr.tokens('"mystring" * 23'))
+		assert lTokens == [
+			['STRING', 'mystring'],
+			['OTHER',  ' '],
+			['OTHER',   '*'],
+			['OTHER',  ' '],
+			['INTEGER', '23'],
+			]
+
+	def test_5():
+
+		tokzr = RETokenizer()
+		tokzr.add('INTEGER', r'\d+')
+		tokzr.add('STRING',  r'"([^"]*)"', 1)
+		tokzr.add('STRING',  r"'([^']*)'", 1)
+
+		lTokens = list(tokzr.tokens('"mystring"'
+											 ' + '
+											 "'other'"))
+		assert lTokens == [
+			['STRING', 'mystring'],
+			['OTHER',  '+'],
+			['STRING', 'other'],
+			]
+
+	def test_6():
+
+		tokzr = RETokenizer()
+		tokzr.add('INTEGER', r'\d+')
+		tokzr.add('STRING',  r'"([^"]*)"', 1)
+		tokzr.add('STRING',  r"'([^']*)'", 1)
+		tokzr.add('HEREDOC', r'<<<')
+		tokzr.add('OP',      r'\+|-|\*|\/')
+
+		lTokens = list(tokzr.tokens('<<< + 23 % 5'))
+		assert lTokens == [
+			['HEREDOC', '<<<'],
+			['OP',  '+'],
+			['INTEGER', '23'],
+			['OTHER', '%'],
+			['INTEGER', '5'],
+			]
+
+	def test_7():
+		# --- Test converting integers to true Python integer
+
+		tokzr = RETokenizer()
+		tokzr.add('INTEGER', r'\d+', 0, int)
+		tokzr.add('STRING',  r'"([^"]*)"', 1)
+		tokzr.add('STRING',  r"'([^']*)'", 1)
+		tokzr.add('HEREDOC', r'<<<')
+		tokzr.add('OP',      r'\+|-|\*|\/')
+
+		lTokens = list(tokzr.tokens('<<< + 23 % 5'))
+		assert lTokens == [
+			['HEREDOC', '<<<'],
+			['OP',  '+'],
+			['INTEGER', 23],
+			['OTHER', '%'],
+			['INTEGER', 5],
+			]
