@@ -80,3 +80,13 @@ SYNOPSIS
 
 	assert len(hSubTrees) == 2
 
+## parserUtils.py
+
+SYNOPSIS
+
+	See the file
+
+## Unit Tests
+
+	All unit tests appear at the end of the source file itself
+	They can be run using pytest

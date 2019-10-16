@@ -26,7 +26,7 @@ setup(
 
 	url = "https://github.com/johndeighan/PLLParser",
 	packages = find_packages(),
-	py_modules = ['myutils','TreeNode','RETokenizer','PLLParser'],
+	py_modules = ['parserUtils','TreeNode','RETokenizer','PLLParser'],
 	classifiers = [
 		"Programming Language :: Python :: 3",
 		"License :: OSI Approved :: MIT License",
