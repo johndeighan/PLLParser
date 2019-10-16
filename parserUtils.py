@@ -1,4 +1,4 @@
-# myutils.py
+# parserUtils.py
 
 import sys, re, io, pytest
 
@@ -10,11 +10,32 @@ reTrailNL    = re.compile(r'\n$')
 reNonSepChar = re.compile(r'^[A-Za-z0-9_\s]')
 reFirstWord  = re.compile(r'^\s*(\S+)')
 reAssign     = re.compile(r'^\s*(\S+)\s*\=\s*(.*)$')
+reChomp2     = re.compile(r'^(\s*)(.*)$')
 hSpecial = {
 	"\t": "\\t",
 	"\n": "\\n",
 	" " : "\\s",
 	}
+
+# ---------------------------------------------------------------------------
+
+def chomp(line):
+
+	assert type(line) == str
+	if line[-1] == '\n':
+		return line[0:-1]
+	else:
+		return line
+
+# ---------------------------------------------------------------------------
+
+def chomp2(line):
+
+	assert type(line) == str
+	line = chomp(line)
+	result = reChomp2.match(line)
+	assert result    # should always match
+	return result.group(1), result.group(2)  # prefix, label
 
 # ---------------------------------------------------------------------------
 
@@ -279,149 +300,165 @@ def cleanup_testcode(glob, *, debug=False):
 #                  UNIT TESTS
 # ---------------------------------------------------------------------------
 
-def test_1():
-	with pytest.raises(TypeError):
-		s = rmPrefix(5)
+if sys.argv[0].find('pytest') > -1:
 
-def test_2():
-	with pytest.raises(TypeError):
-		s = rmPrefix((3,4,5))
+	def test_1():
+		with pytest.raises(TypeError):
+			s = rmPrefix(5)
 
-def test_21():
-	from TreeNode import TreeNode
-	with pytest.raises(TypeError):
-		s = rmPrefix(TreeNode('label'))
+	def test_2():
+		with pytest.raises(TypeError):
+			s = rmPrefix((3,4,5))
 
-# --- Make sure these things are tested - for strings & lists of strings
-#     1. By default, any whitespace lines are removed
-#     2. Internal whitespace lines are included
-#     3. Trailing newlines are untouched
+	def test_21():
+		from TreeNode import TreeNode
+		with pytest.raises(TypeError):
+			s = rmPrefix(TreeNode('label'))
 
-def test_3():
-	# --- Basic example - find leading whitespace in first line
-	#                     and strip that from all other lines
-	lNewLines = rmPrefix([
-		"\t\tabc",
-		"\t\t\tdef",
-		"\t\t\t\tghi",
-		])
-	assert lNewLines == [
-		"abc",
-		"\tdef",
-		"\t\tghi",
-		]
+	# --- Make sure these things are tested - for strings & lists of strings
+	#     1. By default, any whitespace lines are removed
+	#     2. Internal whitespace lines are included
+	#     3. Trailing newlines are untouched
 
-def test_30():
-	assert rmPrefix([]) == []
+	def test_3():
+		# --- Basic example - find leading whitespace in first line
+		#                     and strip that from all other lines
+		lNewLines = rmPrefix([
+			"\t\tabc",
+			"\t\t\tdef",
+			"\t\t\t\tghi",
+			])
+		assert lNewLines == [
+			"abc",
+			"\tdef",
+			"\t\tghi",
+			]
 
-def test_31():
-	# --- leading and trailing all-whitespace lines are removed
-	lNewLines = rmPrefix([
-		"",
-		"\t \t",
-		"\t\t\n",
-		"\t\tabc",
-		"\t\t\tdef",
-		"\t\t\t\tghi",
-		"\t\t",
-		])
-	assert lNewLines == [
-		"abc",
-		"\tdef",
-		"\t\tghi",
-		]
+	def test_30():
+		assert rmPrefix([]) == []
 
-def test_4():
-	s = '''
-			abc
-				def
-					ghi
-'''
-	lNewStr = rmPrefix(s)
-	assert lNewStr == 'abc\n\tdef\n\t\tghi\n'
+	def test_31():
+		# --- leading and trailing all-whitespace lines are removed
+		lNewLines = rmPrefix([
+			"",
+			"\t \t",
+			"\t\t\n",
+			"\t\tabc",
+			"\t\t\tdef",
+			"\t\t\t\tghi",
+			"\t\t",
+			])
+		assert lNewLines == [
+			"abc",
+			"\tdef",
+			"\t\tghi",
+			]
 
-def test_5():
-	# --- test the utility function getHereDoc()
-	s = '''
-		menubar
-			file
-				new
-					handler <<<
-						my $evt = $_[0];
-						$evt.createNewFile();
-						return undef;
+	def test_4():
+		s = '''
+				abc
+					def
+						ghi
+	'''
+		lNewStr = rmPrefix(s)
+		assert lNewStr == 'abc\n\tdef\n\t\tghi\n'
 
-				open
-			edit
-				undo
-'''
-	fh = io.StringIO(s)
-	line1 = fh.readline()   # a blank line
-	line2 = fh.readline()   # menubar
-	line3 = fh.readline()   # file
-	line4 = fh.readline()   # new
-	line5 = fh.readline()   # handler <<<
-	assert line5.find('<<<') == 13
-	lLines = getHereDoc(fh)
-	assert len(lLines) == 3
-	line6 = fh.readline()   # open
-	assert(line6.find('open') == 4)
+	def test_5():
+		# --- test the utility functions chomp2() and getHereDoc()
+		s = '''
+			menubar
+				file
+					new
+						handler <<<
+							my $evt = $_[0];
+							$evt.createNewFile();
+							return undef;
 
-def test_6():
-	assert not isSeparator('')
-	assert not isSeparator('X')
-	assert not isSeparator('x')
-	assert not isSeparator('_')
-	assert not isSeparator('4')
-	assert not isSeparator(' ')
-	assert not isSeparator('\t')
+					open
+				edit
+					undo
+	'''
+		fh = io.StringIO(s)
 
-	assert isSeparator('-') == '-'
-	assert isSeparator('-----') == '-'
-	assert isSeparator('----------------') == '-'
-	assert not isSeparator('abc')
-	assert isSeparator('=====') == '='
-	assert not isSeparator(' -')
-	assert not isSeparator('- ')
+		(pre, line) = chomp2(fh.readline())   # a blank line
+		assert len(pre) == 0
+		assert line == ''
 
-	assert isSeparator('-', '-')
-	assert isSeparator('-----', '-')
-	assert isSeparator('----------------', '-')
-	assert isSeparator('=====', '=')
-	assert isSeparator('=====', '=')
+		(pre, line) = chomp2(fh.readline())   # menubar
+		assert len(pre) == 3
+		assert line == 'menubar'
 
+		(pre, line) = chomp2(fh.readline())   # file
+		assert len(pre) == 4
+		assert line == 'file'
 
-def test_7():
-	assert firstWordOf('abc def') == 'abc'
-	assert firstWordOf('') == None
-	assert firstWordOf('   ') == None
-	assert firstWordOf('  abc  def  ghi') == 'abc'
+		(pre, line) = chomp2(fh.readline())   # new
+		assert len(pre) == 5
+		assert line == 'new'
 
-def test_8():
-	# --- Test my understanding of the split method
-	assert ("abc xyz".split()[0] == 'abc')
-	assert ("   abc xyz  ".split()[0] == 'abc')
-	assert ("   abc xyz  ".split()[1] == 'xyz')
-	assert ("   房子 窗口  ".split()[0] == '房子')
-	assert ("   房子 窗口  ".split()[1] == '窗口')
+		(pre, line) = chomp2(fh.readline())   # handler <<<
+		assert len(pre) == 6
+		assert line == 'handler <<<'
+		lLines = getHereDoc(fh)
+		assert len(lLines) == 3
 
-def test_9():
-	assert splitAssignment("x = 9") == ('x', '9')
-	assert splitAssignment("xxx = 90") == ('xxx', '90')
-	assert splitAssignment("  x   =   9") == ('x', '9')
-	assert splitAssignment("x=9") == ('x', '9')
+		(pre, line) = chomp2(fh.readline())   # open
+		assert len(pre) == 5
+		assert line == 'open'
 
-def test_10():
-	with pytest.raises(Exception):
-		result = splitAssignment("x9")
+	def test_6():
+		assert not isSeparator('')
+		assert not isSeparator('X')
+		assert not isSeparator('x')
+		assert not isSeparator('_')
+		assert not isSeparator('4')
+		assert not isSeparator(' ')
+		assert not isSeparator('\t')
 
-def test_11():
-	try:
-		(key, value) = splitAssignment('name = editor')
-		assert key == 'name'
-		assert value == 'editor'
-	except:
-		raise Exception("Very Bad")
+		assert isSeparator('-') == '-'
+		assert isSeparator('-----') == '-'
+		assert isSeparator('----------------') == '-'
+		assert not isSeparator('abc')
+		assert isSeparator('=====') == '='
+		assert not isSeparator(' -')
+		assert not isSeparator('- ')
+
+		assert isSeparator('-', '-')
+		assert isSeparator('-----', '-')
+		assert isSeparator('----------------', '-')
+		assert isSeparator('=====', '=')
+		assert isSeparator('=====', '=')
 
 
-cleanup_testcode(globals())
+	def test_7():
+		assert firstWordOf('abc def') == 'abc'
+		assert firstWordOf('') == None
+		assert firstWordOf('   ') == None
+		assert firstWordOf('  abc  def  ghi') == 'abc'
+
+	def test_8():
+		# --- Test my understanding of the split method
+		assert ("abc xyz".split()[0] == 'abc')
+		assert ("   abc xyz  ".split()[0] == 'abc')
+		assert ("   abc xyz  ".split()[1] == 'xyz')
+		assert ("   房子 窗口  ".split()[0] == '房子')
+		assert ("   房子 窗口  ".split()[1] == '窗口')
+
+	def test_9():
+		assert splitAssignment("x = 9") == ('x', '9')
+		assert splitAssignment("xxx = 90") == ('xxx', '90')
+		assert splitAssignment("  x   =   9") == ('x', '9')
+		assert splitAssignment("x=9") == ('x', '9')
+
+	def test_10():
+		with pytest.raises(Exception):
+			result = splitAssignment("x9")
+
+	def test_11():
+		try:
+			(key, value) = splitAssignment('name = editor')
+			assert key == 'name'
+			assert value == 'editor'
+		except:
+			raise Exception("Very Bad")
+
