@@ -8,8 +8,9 @@ import sys, io, re, pytest
 from more_itertools import ilen
 from pprint import pprint
 
-from myutils import (rmPrefix, reLeadWS, isAllWhiteSpace,
-                    traceStr, cleanup_testcode, firstWordOf)
+from parserUtils import (
+		rmPrefix, reLeadWS, isAllWhiteSpace,
+		traceStr, cleanup_testcode, firstWordOf)
 from TreeNode import TreeNode
 
 # --- Some pre-compiled regular expressions
