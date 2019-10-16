@@ -8,55 +8,58 @@ import sys, io, re, pytest
 from more_itertools import ilen
 from pprint import pprint
 
+from TreeNode import TreeNode
+sys.path.append('.')   # for some reason, unit tests fail without this
 from parserUtils import (
 		rmPrefix, reLeadWS, isAllWhiteSpace,
-		traceStr, cleanup_testcode, firstWordOf)
-from TreeNode import TreeNode
-
-# --- Some pre-compiled regular expressions
-
-hDefOptions = {
-	'hereDocStr': '<<<',
-	'markStr':    '*',
-	'reAttr':     re.compile(r'^(\S+)\s*\=\s*(.*)$'),
-	}
+		traceStr, firstWordOf
+		)
 
 # ---------------------------------------------------------------------------
 
-def parsePLL(fh, hOptions={},
-                 *,
-                 constructor=TreeNode,
-                 debug=False):
+def parsePLL(fh, constructor=TreeNode, *,
+             debug=False,
+             **kwargs):
 
-	return PLLParser(constructor, hOptions, debug).parse(fh)
+	assert isinstance(constructor('label'), TreeNode)
+	return PLLParser(constructor,
+	                 debug=debug,
+	                 **kwargs
+	                 ).parse(fh)
 
 # ---------------------------------------------------------------------------
 
 class PLLParser():
 
 	# --- We want to compile these just once, so make them class fields
-	reLine     = re.compile(r'^(\s*)')
+	reLine = re.compile(r'^(\s*)')
+
+	# --- These are the only recognized options
 	hDefOptions = {
 		# --- These become attributes of the PLLParser object
-		'hereDocStr': '<<<',
 		'markStr':    '*',
-		'reComment':  re.compile(r'(?<!\\)#.*$'),  # ignore escaped '#' char
-		'reAttr':     re.compile(r'^(\S+)\s*\=\s*(.*)$'),
+		'reComment':  None,
+		'reAttr':     None,
 		}
 
 	# ------------------------------------------------------------------------
 
-	def __init__(self, constructor=TreeNode,
-	                   hOptions={},
-	                   debug=False):
+	def __init__(self, constructor=TreeNode, *,
+                debug=False,
+                **kwargs):
 
-		self.setOptions(hOptions)
+		self.setOptions(kwargs)
 		self.constructor = constructor or TreeNode
 		self.debug = debug
 
 	# ------------------------------------------------------------------------
 
 	def setOptions(self, hOptions):
+
+		# --- Make sure only valid options were passed
+		for name in hOptions.keys():
+			if name not in self.hDefOptions:
+				raise Exception(f"Invalid option: '{name}'")
 
 		for name in self.hDefOptions.keys():
 			if name in hOptions:
@@ -71,6 +74,7 @@ class PLLParser():
 		# --- Returns (rootNode, hSubTrees)
 
 		self.numLines = 0
+		reAttr = self.reAttr
 
 		rootNode = curNode = None
 		hSubTrees = {}
@@ -78,39 +82,19 @@ class PLLParser():
 		curLevel = None
 		debug = self.debug
 
-		# --- Putting this in a separate variable
-		#     allows us to get HEREDOC lines
 		gen = self._generator(fh)
 		for line in gen:
 			if debug:
 				print(f"LINE {self.numLines}: '{traceStr(line)}'", end='')
 
-			(newLevel, label, marked, numHereDoc) = self.splitLine(line)
+			(newLevel, label, marked) = self.splitLine(line)
 
 			if debug:
-				print(f" [{newLevel},{numHereDoc}] '{label}'")
-
-			# --- Extract HEREDOC strings, if any
-			lHereDoc = None
-			if numHereDoc > 0:
-				lHereDoc = []
-				try:
-					text = ''
-					for i in range(numHereDoc):
-						hereLine = gen.send('any')
-						while not isAllWhiteSpace(hereLine):
-							text += hereLine
-							hereLine = gen.send('any')
-						lHereDoc.append(rmPrefix(text))
-						numHereDoc -= 1
-				except:
-					raise SyntaxError("Unexpected EOF in HEREDOC string")
+				print(f" [{newLevel}] '{label}'")
 
 			# --- process first non-empty line
 			if rootNode == None:
 				rootNode = curNode = self.constructor(label)
-				if lHereDoc:
-					rootNode['lHereDoc'] = lHereDoc
 
 				# --- This wouldn't make any sense, but in case someone does it
 				if marked:
@@ -135,8 +119,8 @@ class PLLParser():
 				assert curNode and isinstance(curNode, self.constructor)
 
 				# --- Check for attributes
-				if self.reAttr:
-					result = self.reAttr.search(label)
+				if reAttr:
+					result = reAttr.search(label)
 					if result:
 						(name, value) = (result.group(1), result.group(2))
 						if 'hAttr' in curNode:
@@ -150,8 +134,6 @@ class PLLParser():
 					print(f"   - new child of {curNode.asDebugString()}")
 				assert not curNode.firstChild
 				curNode = self.constructor(label).makeChildOf(curNode)
-				if lHereDoc:
-					curNode['lHereDoc'] = lHereDoc
 				if marked:
 					hSubTrees[firstWordOf(label)] = curNode
 				curLevel += 1
@@ -167,8 +149,6 @@ class PLLParser():
 					curNode = curNode.parent
 					assert curNode
 				curNode = self.constructor(label).makeSiblingOf(curNode)
-				if lHereDoc:
-					curNode['lHereDoc'] = lHereDoc
 				if marked:
 					hSubTrees[firstWordOf(label)] = curNode
 			elif diff == 0:
@@ -177,8 +157,6 @@ class PLLParser():
 					print(f"   - new sibling of {curNode.asDebugString()}")
 				assert not curNode.nextSibling
 				curNode = self.constructor(label).makeSiblingOf(curNode)
-				if lHereDoc:
-					curNode['lHereDoc'] = lHereDoc
 				if marked:
 					hSubTrees[firstWordOf(label)] = curNode
 
@@ -250,8 +228,8 @@ class PLLParser():
 		assert type(line) == str
 		assert not isAllWhiteSpace(line)
 
-		# --- returns (level, label, marked, numHereDoc)
-		#     label will have markStr removed, but hereDocStr's will remain
+		# --- returns (level, label, marked)
+		#     label will have markStr removed
 
 		marked = False
 		result = self.reLine.search(line)
@@ -277,17 +255,8 @@ class PLLParser():
 			else:
 				label = line[level:]
 
-			# --- Check if there are any HereDoc strings
-			numHereDoc = 0
-			if self.hereDocStr:
-				pos = label.find(self.hereDocStr, 0)
-				while pos != -1:
-					numHereDoc += 1
-					pos += len(self.hereDocStr)
-					pos = label.find(self.hereDocStr, pos)
-
 			label = label.replace('\\#', '#')
-			return (level, label, marked, numHereDoc)
+			return (level, label, marked)
 		else:
 			raise Exception("What! This cannot happen (reLine fails to match)")
 
@@ -306,17 +275,22 @@ class PLLParser():
 
 	def nextNonBlankLine(self, fh):
 
+		reComment = self.reComment
+
 		line = fh.readline()
 		self.numLines += 1
 		if not line:
 			return None
-		line = re.sub(self.reComment, '', line)
+		if reComment:
+			line = re.sub(reComment, '', line)
 		line = line.rstrip()
 		while line == '':
 			line = fh.readline()
 			self.numLines += 1
-			if not line: return None
-			line = re.sub(self.reComment, '', line)
+			if not line:
+				return None
+			if reComment:
+				line = re.sub(reComment, '', line)
 			line = line.rstrip()
 		return line
 
@@ -324,164 +298,268 @@ class PLLParser():
 #                   UNIT TESTS
 # ---------------------------------------------------------------------------
 
-def test_1():
-	s = '''
-		top
-			peach
-				fuzzy
-						navel
-				pink
-			apple
-				red
-	'''
-	(tree, hSubTrees) = parsePLL(s)
+if sys.argv[0].find('pytest') > -1:
 
-	n = ilen(tree.children())
-	assert n == 2
+	def test_1():
+		(tree, hSubTrees) = parsePLL('''
+			top
+				peach
+					fuzzy
+							navel
 
-	n = ilen(tree.descendents())
-	assert n == 6
+					pink
+				apple
+					red
+			''')
 
-	assert ilen(tree.firstChild.children()) == 2
+		n = ilen(tree.children())
+		assert n == 2
 
-	assert tree['label'] == 'top'
+		n = ilen(tree.siblings())
+		assert n == 0
 
-	assert tree.firstChild['label'] == 'peach'
+		# --- descendents() includes the node itself
+		n = ilen(tree.descendents())
+		assert n == 6
 
-	node = tree.firstChild.firstChild
-	node['label'] == 'fuzzy navel'
+		assert ilen(tree.firstChild.children()) == 2
 
-# ---------------------------------------------------------------------------
-# Test some invalid input
+		assert tree['label'] == 'top'
 
-def test_7():
-	s = '''
-		main
-			  peach
-			apple
-	'''
-	with pytest.raises(SyntaxError):
-		parsePLL(s)
+		assert tree.firstChild['label'] == 'peach'
 
-def test_8():
-	s = '''
-main
-   peach
-   apple
-	'''
-	with pytest.raises(SyntaxError):
-		parsePLL(s)
+		node = tree.firstChild.firstChild
+		node['label'] == 'fuzzy navel'
 
-# ---------------------------------------------------------------------------
-# --- Test HEREDOC syntax
+	# ------------------------------------------------------------------------
 
-def test_3():
-	s = '''
-		menubar
-			file
-				new
-					*handler <<<
-						my $evt = $_[0];
-						$evt.createNewFile();
-						return undef;
+	def test_2():
+		# --- Root node can have siblings, i.e. input does not
+		#     need to be a true tree
 
-				open
-			edit
-				undo
-	'''
-	(tree, hSubTrees) = parsePLL(s, debug=False)
-	handler = hSubTrees['handler']
+		(tree, hSubTrees) = parsePLL('''
+			top
+				peach
+					fuzzy
+							navel
+					pink
+				apple
+					red
+			next
+				child of next
+			''')
 
-	label = tree['label']
-	assert label == 'menubar'
+		n = ilen(tree.children())
+		assert n == 2
 
-	n = ilen(tree.children())
-	assert n == 2
+		n = ilen(tree.siblings())
+		assert n == 1
 
-	n = ilen(tree.descendents())
-	assert n == 7
+		# --- descendents() includes the node itself
+		n = ilen(tree.descendents())
+		assert n == 6
 
-	assert 'lHereDoc' in handler
-	assert (handler['lHereDoc'][0]
-		== 'my $evt = $_[0];\n$evt.createNewFile();\nreturn undef;\n')
+		assert tree['label'] == 'top'
 
-# ---------------------------------------------------------------------------
-#     Test if it will parse fragments
+		assert tree.firstChild['label'] == 'peach'
+		assert tree.nextSibling['label'] == 'next'
+		assert tree.nextSibling.firstChild['label'] == 'child of next'
 
-def test_4():
-	s = '''
-		menubar
-			file
-				new
-				open
-			edit
-				undo
-		layout
-			row
-				EditField
-				SelectField
-	'''
-	(tree, hSubTrees) = parsePLL(s, debug=False)
+	# ------------------------------------------------------------------------
+	# Test some invalid input
 
-	n = ilen(tree.descendents())
-	assert n == 6
+	def test_3():
+		s = '''
+			main
+				  peach
+				apple
+		'''
+		with pytest.raises(SyntaxError):
+			parsePLL(s)
 
-	n = ilen(tree.followingNodes())
-	assert n == 10
+	# ------------------------------------------------------------------------
 
-# ---------------------------------------------------------------------------
-#     Test marked subtrees
+	def test_4():
+		# --- No support for indenting with spaces yet
+		#     Below, both 'peach' and 'apple' are indented with spaces
+		s = '''
+	main
+	   peach
+	   apple
+		'''
+		with pytest.raises(SyntaxError):
+			parsePLL(s)
 
-def test_5():
-	s = '''
-		App
-			* menubar
+	# ------------------------------------------------------------------------
+
+	def test_5():
+		# --- By default, neither comments or attributes are recognized
+		(tree, hSubTrees) = parsePLL('''
+			top
+				number = 5 # not an attribute
+				peach # not a comment
+				apple
+			''')
+		assert tree['label'] == 'top'
+		child1 = tree.firstChild
+		child2 = tree.firstChild.nextSibling
+		assert child1['label'] == 'number = 5 # not an attribute'
+		assert child2['label'] == 'peach # not a comment'
+
+	# ------------------------------------------------------------------------
+	#     Test if it will parse fragments
+
+	def test_5():
+		s = '''
+			menubar
 				file
 					new
 					open
 				edit
 					undo
-			* layout
+			layout
 				row
 					EditField
 					SelectField
-	'''
-	(tree, hSubTrees) = parsePLL(s, debug=False)
-	subtree1 = hSubTrees['menubar']
-	subtree2 = hSubTrees['layout']
+		'''
+		(tree, hSubTrees) = parsePLL(s, debug=False)
 
-	n = ilen(tree.descendents())
-	assert n == 11
+		n = ilen(tree.descendents())
+		assert n == 6
 
-	assert (subtree1['label'] == 'menubar')
-	n = ilen(subtree1.descendents())
-	assert n == 6
+		n = ilen(tree.followingNodes())
+		assert n == 10
 
-	assert (subtree2['label'] == 'layout')
-	n = ilen(subtree2.descendents())
-	assert n == 4
+	# ------------------------------------------------------------------------
+	#     Test marked subtrees
 
-	n = ilen(tree.followingNodes())
-	assert n == 11
+	def test_6():
+		s = '''
+			App
+				* menubar
+					file
+						new
+						open
+					edit
+						undo
+				* layout
+					row
+						EditField
+						SelectField
+		'''
+		(tree, hSubTrees) = parsePLL(s, debug=False)
+		subtree1 = hSubTrees['menubar']
+		subtree2 = hSubTrees['layout']
 
-def test_6():
-	s = '''
-		bg  # a comment
-			color = \\#abcdef   # not a comment
-			graph
-	'''
-	(tree, hSubTrees) = parsePLL(s)
+		n = ilen(tree.descendents())
+		assert n == 11
 
-	n = ilen(tree.descendents())
-	assert n == 2
+		assert (subtree1['label'] == 'menubar')
+		n = ilen(subtree1.descendents())
+		assert n == 6
 
-	assert tree['label'] == 'bg'
+		assert (subtree2['label'] == 'layout')
+		n = ilen(subtree2.descendents())
+		assert n == 4
 
-	assert tree.firstChild['label'] == 'graph'
+		n = ilen(tree.followingNodes())
+		assert n == 11
 
-# ---------------------------------------------------------------------------
+	# ------------------------------------------------------------------------
+	# --- Test stripping comments
 
-cleanup_testcode(globals())   # remove unit tests when not testing
+	def test_7():
+
+		(tree, hSubTrees) = parsePLL('''
+			bg  # a comment
+				color = \\#abcdef   # not a comment
+				graph
+			''',
+			reComment=re.compile(r'(?<!\\)#.*$'),  # ignore escaped '#' char
+			)
+
+		n = ilen(tree.descendents())
+		assert n == 3
+
+		assert tree['label'] == 'bg'
+		assert tree.firstChild['label'] == 'color = #abcdef'
+		assert tree.firstChild.nextSibling['label'] == 'graph'
+
+	# ------------------------------------------------------------------------
+	# --- test hAttr key
+
+	def test_8():
+		(node,h) = parsePLL('''
+				mainWindow
+					*menubar
+						align=left
+						flow  =  99
+						--------------
+						not an option
+					*layout
+						life=  42
+						meaning   =42
+				''',
+				reAttr=re.compile(r'^(\S+)\s*\=\s*(.*)$'),
+				)
+
+		menubar = h['menubar']
+		assert menubar
+		assert isinstance(menubar, TreeNode)
+		hOptions1 = menubar.get('hAttr')
+		assert hOptions1 == {
+				'align': 'left',
+				'flow': '99',
+				}
+
+		layout = h['layout']
+		assert layout
+		assert isinstance(layout, TreeNode)
+		hOptions2 = layout.get('hAttr')
+		assert hOptions2 == {
+				'life': '42',
+				'meaning': '42',
+				}
+
+	# ------------------------------------------------------------------------
+
+	def test_9():
+		# --- Note that this regexp allows no space before the colon
+		#     and requires at least one space after the colon
+		reWithColon = re.compile(r'^(\S+):\s+(.*)$')
+		(node,h) = parsePLL('''
+				mainWindow
+					*menubar
+						align: left
+						flow:    99
+						notAnOption : text
+						notAnOption:moretext
+						--------------
+						not an option
+					*layout
+						life:  42
+						meaning:   42
+				''',
+				reAttr=reWithColon,
+				)
+
+		menubar = h['menubar']
+		assert menubar
+		assert isinstance(menubar, TreeNode)
+		hOptions1 = menubar.get('hAttr')
+		assert hOptions1 == {
+				'align': 'left',
+				'flow': '99',
+				}
+
+		layout = h['layout']
+		assert layout
+		assert isinstance(layout, TreeNode)
+		hOptions2 = layout.get('hAttr')
+		assert hOptions2 == {
+				'life': '42',
+				'meaning': '42',
+				}
 
 # ---------------------------------------------------------------------------
 

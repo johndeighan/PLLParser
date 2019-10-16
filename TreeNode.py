@@ -3,7 +3,8 @@
 import sys, re, pytest, collections
 from more_itertools import ilen
 
-from myutils import rmPrefix, isAllWhiteSpace
+sys.path.append('.')   # for some reason, unit tests fail without this
+from parserUtils import rmPrefix, isAllWhiteSpace, runningUnitTests
 
 reAssign = re.compile(r'^(\S+)\s*\=\s*(.*)$')
 
@@ -265,127 +266,60 @@ def nodeStr(node):
 #                   UNIT TESTS
 # ---------------------------------------------------------------------------
 
-# --- test tree ---
-#	top
-#		peach
-#			fuzzy navel
-#			pink
-#		apple
-#			red
+if runningUnitTests:
 
-test_tree = TreeNode('top')
+	# --- test tree ---
+	#	top
+	#		peach
+	#			fuzzy navel
+	#			pink
+	#		apple
+	#			red
 
-peach = TreeNode('peach').makeChildOf(test_tree)
-TreeNode('fuzzy navel').makeChildOf(peach)
-TreeNode('pink').makeChildOf(peach)
+	test_tree = TreeNode('top')
 
-apple = TreeNode('apple').makeChildOf(test_tree)
-TreeNode('red').makeChildOf(apple)
+	peach = TreeNode('peach').makeChildOf(test_tree)
+	TreeNode('fuzzy navel').makeChildOf(peach)
+	TreeNode('pink').makeChildOf(peach)
 
-def test_0():
-	# --- Test asString()
-	mystr = test_tree.asString()
-	assert mystr == rmPrefix('''
-		top
-			peach
-				fuzzy navel
-				pink
-			apple
-				red
-		''')
+	apple = TreeNode('apple').makeChildOf(test_tree)
+	TreeNode('red').makeChildOf(apple)
 
-def test_1():
-	n = ilen(test_tree.children())
-	assert n == 2
-
-def test_2():
-	n = ilen(test_tree.descendents())
-	assert n == 6
-
-def test_3():
-	assert ilen(test_tree.firstChild.children()) == 2
-
-def test_4():
-	assert test_tree['label'] == 'top'
-
-def test_5():
-	assert test_tree.firstChild['label'] == 'peach'
-
-def test_6():
-	node = test_tree.firstChild.firstChild
-	node['label'] == 'fuzzy navel'
-
-# --- test hAttr key
-
-def test_7():
-	from PLLParser import parsePLL
-
-	(node,h) = parsePLL('''
-			mainWindow
-				*menubar
-					align=left
-					flow  =  99
-					--------------
-					not an option
-				*layout
-					life=  42
-					meaning   =42
+	def test_0():
+		# --- Test asString()
+		mystr = test_tree.asString()
+		assert mystr == rmPrefix('''
+			top
+				peach
+					fuzzy navel
+					pink
+				apple
+					red
 			''')
 
-	menubar = h['menubar']
-	assert menubar
-	assert isinstance(menubar, TreeNode)
-	hOptions1 = menubar.get('hAttr')
-	assert hOptions1 == {
-			'align': 'left',
-			'flow': '99',
-			}
+	def test_1():
+		n = ilen(test_tree.children())
+		assert n == 2
 
-	layout = h['layout']
-	assert layout
-	assert isinstance(layout, TreeNode)
-	hOptions2 = layout.get('hAttr')
-	assert hOptions2 == {
-			'life': '42',
-			'meaning': '42',
-			}
+	def test_2():
+		n = ilen(test_tree.descendents())
+		assert n == 6
 
-def test_8():
-	from PLLParser import parsePLL
+	def test_3():
+		assert ilen(test_tree.firstChild.children()) == 2
 
-	# --- Note that this regexp allows no space before the colon
-	#     and requires at least one space after the colon
-	reWithColon = re.compile(r'^(\S+):\s+(.*)$')
-	(node,h) = parsePLL('''
-			mainWindow
-				*menubar
-					align: left
-					flow:    99
-					notAnOption : text
-					notAnOption:moretext
-					--------------
-					not an option
-				*layout
-					life:  42
-					meaning:   42
-			''', {'reAttr': reWithColon})
+	def test_4():
+		assert test_tree['label'] == 'top'
 
-	menubar = h['menubar']
-	assert menubar
-	assert isinstance(menubar, TreeNode)
-	hOptions1 = menubar.get('hAttr')
-	assert hOptions1 == {
-			'align': 'left',
-			'flow': '99',
-			}
+	def test_5():
+		assert test_tree.firstChild['label'] == 'peach'
 
-	layout = h['layout']
-	assert layout
-	assert isinstance(layout, TreeNode)
-	hOptions2 = layout.get('hAttr')
-	assert hOptions2 == {
-			'life': '42',
-			'meaning': '42',
-			}
+	def test_6():
+		node = test_tree.firstChild.firstChild
+		node['label'] == 'fuzzy navel'
 
+	def test_7():
+		from TreeNode import TreeNode
+		with pytest.raises(TypeError):
+			s = rmPrefix(TreeNode('label'))
 

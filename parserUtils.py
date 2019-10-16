@@ -19,6 +19,12 @@ hSpecial = {
 
 # ---------------------------------------------------------------------------
 
+def runningUnitTests():
+
+	return (sys.argv[0].find('pytest') > -1)
+
+# ---------------------------------------------------------------------------
+
 def chomp(line):
 
 	assert type(line) == str
@@ -279,28 +285,10 @@ def traceStr(str, *, maxchars=0, detailed=False):
 	return outstr
 
 # ---------------------------------------------------------------------------
-
-def cleanup_testcode(glob, *, debug=False):
-
-	# --- If not running unit tests, remove unneeded functions and data
-	#     to save memory
-	if sys.argv[0].find('pytest') == -1:
-		if debug:
-			print(f"Running normally - clean up {glob['__file__']} test functions/data")
-		reTest = re.compile(r'^(?:test|init)_')
-		for name in [name for name in glob.keys() if reTest.match(name)]:
-			if debug:
-				print(f"Clean up {name}")
-			globals()[name] = None
-	else:
-		if debug:
-			print("Running unit tests")
-
-# ---------------------------------------------------------------------------
 #                  UNIT TESTS
 # ---------------------------------------------------------------------------
 
-if sys.argv[0].find('pytest') > -1:
+if runningUnitTests:
 
 	def test_1():
 		with pytest.raises(TypeError):
@@ -309,11 +297,6 @@ if sys.argv[0].find('pytest') > -1:
 	def test_2():
 		with pytest.raises(TypeError):
 			s = rmPrefix((3,4,5))
-
-	def test_21():
-		from TreeNode import TreeNode
-		with pytest.raises(TypeError):
-			s = rmPrefix(TreeNode('label'))
 
 	# --- Make sure these things are tested - for strings & lists of strings
 	#     1. By default, any whitespace lines are removed
