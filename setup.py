@@ -8,11 +8,14 @@ HERE = pathlib.Path(__file__).parent
 README = (HERE / "README.md").read_text()
 
 # --- Get the version number
-
+reVersion = re.compile(r'^__version__\s*=\s*\"(.*)\"')
 version = ''
-with open('./version.json') as fh:
-	hJson = json.load(fh)
-	version = hJson['version']
+with open('./parserUtils.py') as fh:
+	for line in fh:
+		result = reVersion.match(line)
+		if result:
+			version = result.group(1)
+			break
 
 setup(
 	name = "PLLParser",

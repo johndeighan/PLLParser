@@ -16,18 +16,14 @@ hSpecial = {
 	" " : "\\s",
 	}
 
+__version__ = "0.3.2"
+
+
 # ---------------------------------------------------------------------------
 
-def getVersion(filepath=None):
+def getVersion():
 
-	if not filepath:
-		filepath = __file__
-	dir = os.path.abspath(os.path.dirname(filepath))
-	filepath = os.path.join(dir, 'version.json')
-	print(f"filepath = '{filepath}'")
-	with open(filepath, encoding='utf8') as fh:
-		hJson = json.load(fh)
-		return hJson['version']
+	return __version__
 
 # ---------------------------------------------------------------------------
 
@@ -292,8 +288,6 @@ def traceStr(str, *, maxchars=0, detailed=False):
 		outstr += outch
 		nChars += 1
 	return outstr
-
-__version__ = getVersion()
 
 # ---------------------------------------------------------------------------
 #                  UNIT TESTS
