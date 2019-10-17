@@ -1,6 +1,6 @@
 # setup.py
 
-import sys, pathlib, json
+import sys, pathlib, re, json
 from setuptools import setup, find_packages
 
 # --- Get the text of README.md
