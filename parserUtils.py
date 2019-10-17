@@ -1,6 +1,6 @@
 # parserUtils.py
 
-import sys, re, io, pytest, json, pprint
+import os, sys, re, io, pytest, json, pprint
 
 reAllWS      = re.compile(r'^\s*$')
 reLeadWS     = re.compile(r'^([\t\ ]+)')   # don't consider '\n'
@@ -18,9 +18,14 @@ hSpecial = {
 
 # ---------------------------------------------------------------------------
 
-def getVersion(filepath='./version.json'):
+def getVersion(filepath=None):
 
-	with open(filepath) as fh:
+	if not filepath:
+		filepath = __file__
+	dir = os.path.abspath(os.path.dirname(filepath))
+	filepath = os.path.join(dir, 'version.json')
+	print(f"filepath = '{filepath}'")
+	with open(filepath, encoding='utf8') as fh:
 		hJson = json.load(fh)
 		return hJson['version']
 
