@@ -12,8 +12,8 @@ from typing import Pattern
 from TreeNode import TreeNode
 from RETokenizer import RETokenizer
 from parserUtils import (
-		reLeadWS, isAllWhiteSpace, getVersion,
-		traceStr, firstWordOf, chomp2, runningUnitTests
+		reLeadWS, isAllWhiteSpace, getVersion, rmPrefix, prettyPrint,
+		traceStr, firstWordOf, chomp, chomp2, runningUnitTests
 		)
 
 __version__ = getVersion()
@@ -39,10 +39,11 @@ class PLLParser():
 	hDefOptions = {
 		# --- These become attributes of the PLLParser object
 		'markStr':      '*',
-		'hereDocToken': None,
 		'reComment':    None,
 		'reAttr':       None,
 		'tokenizer':    None,
+		'hereDocToken': None,
+		'commentToken': None
 		}
 
 	# ------------------------------------------------------------------------
@@ -71,7 +72,7 @@ class PLLParser():
 				# --- Do some type checking
 				if name == 'tokenizer':
 					assert isinstance(value, RETokenizer)
-				elif name in ('markStr','hereDocToken'):
+				elif name in ('markStr','hereDocToken','commentToken'):
 					assert type(value) == str
 				elif name in ('reComment','reAttr'):
 					assert isinstance(value, Pattern)
@@ -87,26 +88,38 @@ class PLLParser():
 		self.numLines = 0
 
 		reAttr = self.reAttr
+		tokzr = self.tokenizer
 
 		rootNode = curNode = None
 		hSubTrees = {}
 
 		curLevel = None
 		debug = self.debug
+		if debug:
+			print()    # print newline
 
-		gen = self._generator(fh)
-		for line in gen:
+		# --- iter is an iterator. The next value in the iterator
+		#     can be retrieved via nextVal = next(iter)
+		#     We use that to implement HEREDOC syntax
+		iter = self._generator(fh)
+		for line in iter:
 			if debug:
-				print(f"LINE {self.numLines}: '{traceStr(line)}'", end='')
+				print(f"LINE {self.numLines} = '{traceStr(line)}'", end='')
+			line = self.chompComment(line)
+			# if isAllWhiteSpace(line):
+			if line == '':
+				if debug:
+					print("   - skip blank line")
+				continue
 
 			(newLevel, label, marked) = self.splitLine(line)
 
 			if debug:
-				print(f" [{newLevel}] '{label}'")
+				print(f" [{newLevel}, '{label}']")
 
 			# --- process first non-empty line
 			if rootNode == None:
-				rootNode = curNode = self.mknode(label)
+				rootNode = curNode = self.mknode(label, tokzr, iter)
 
 				# --- This wouldn't make any sense, because the root node
 				#     is returned whether it's marked or not,
@@ -145,9 +158,11 @@ class PLLParser():
 
 				# --- create new child node
 				if debug:
-					print(f"   - new child of {curNode.asDebugString()}")
+					print(f"   - '{label}', new child of '{curNode.asDebugString()}'")
 				assert not curNode.firstChild
-				curNode = self.mknode(label).makeChildOf(curNode)
+				newNode = self.mknode(label, tokzr, iter)
+				newNode.makeChildOf(curNode)
+				curNode = newNode
 				if marked:
 					hSubTrees[firstWordOf(label)] = curNode
 				curLevel += 1
@@ -162,7 +177,9 @@ class PLLParser():
 					curLevel -= 1
 					curNode = curNode.parent
 					assert curNode
-				curNode = self.mknode(label).makeSiblingOf(curNode)
+				newNode = self.mknode(label, tokzr, iter)
+				newNode.makeSiblingOf(curNode)
+				curNode = newNode
 				if marked:
 					hSubTrees[firstWordOf(label)] = curNode
 			elif diff == 0:
@@ -170,7 +187,9 @@ class PLLParser():
 				if debug:
 					print(f"   - new sibling of {curNode.asDebugString()}")
 				assert not curNode.nextSibling
-				curNode = self.mknode(label).makeSiblingOf(curNode)
+				newNode = self.mknode(label, tokzr, iter)
+				newNode.makeSiblingOf(curNode)
+				curNode = newNode
 				if marked:
 					hSubTrees[firstWordOf(label)] = curNode
 
@@ -188,21 +207,63 @@ class PLLParser():
 
 	# ------------------------------------------------------------------------
 
-	def mknode(self, label):
+	def mknode(self, label, tokzr, iter):
 
-		constructor = self.constructor
-		assert constructor
-		tokenizer = self.tokenizer
+		# --- Since we implement HEREDOC syntax (by fetching lines
+		#     from iter), we need to fetch tokens now
+
+		commentToken = self.commentToken
 		hereDocToken = self.hereDocToken
 
-		node = constructor(label)
-		if tokenizer:
-			node['lTokens'] = list(tokenizer.tokens(label))
+		node = self.constructor(label)
+		if tokzr:
+			lTokens = []
+			for (type, tokStr) in tokzr.tokens(label):
+				if commentToken and (type == commentToken):
+					break
+
+				if hereDocToken and (type == hereDocToken):
+					# --- Grab lines from iterator until no more lines
+					#     or line is all whitespace
+					lLines = []
+					s = next(iter)
+					if self.debug:
+						print()
+						print(f"...s = '{s}'")
+
+					# --- Check if there's any leading whitespace
+					leadWS = ''
+					leadLen = 0
+					result = reLeadWS.search(s)
+					if result:
+						leadWS = result.group(1)
+						leadLen = len(leadWS)
+
+					while s and not isAllWhiteSpace(s):
+						if leadWS and (s[0:leadLen] != leadWS):
+							raise SyntaxError("Missing HEREDOC leading whitespace")
+						s = s[leadLen:]
+						lLines.append(s + '\n')
+						s = next(iter, 'any')
+						if self.debug:
+							print(f"...s = '{s}'")
+
+					rmPrefix(lLines)
+					lTokens.append([hereDocToken, ''.join(lLines)])
+				else:
+					lTokens.append([type, tokStr])
+			node['lTokens'] = lTokens
 		return node
 
 	# ------------------------------------------------------------------------
+	# --- Since the generator is used to parse HEREDOC strings, which
+	#     should not have comments stripped, the caller of the generator
+	#     must strip off comments if reComment is set
+	#     The generator will ensure that any trailing '\n' is stripped
 
 	def _generator(self, fh):
+
+		debug = self.debug
 
 		# --- Allow passing in a string
 		if isinstance(fh, str):
@@ -212,9 +273,25 @@ class PLLParser():
 		#     if there's any leading whitespace, which will
 		#     be stripped from ALL lines (and therefore must
 		#     be there for every subsequent line)
-		line = self.nextNonBlankLine(fh)
-		if not line:
+		# NOTE: At this point, we can't be in a HEREDOC string,
+		#       so it's safe to strip comments if reComment is set
+
+		# NOTE: If the next line is a blank line, fh.readline()
+		#       will return "\n", which is not falsey
+
+		line = self.getLine(fh)
+		if line == None:
+			if debug:
+				print("   GEN: EOF")
 			return
+		line = self.chompComment(line)
+		while line == '':
+			line = self.getLine(fh)
+			if line == None:
+				if debug:
+					print("   GEN: EOF")
+				return
+			line = self.chompComment(line)
 
 		# --- Check if there's any leading whitespace
 		leadWS = ''
@@ -224,29 +301,48 @@ class PLLParser():
 			leadWS = result.group(1)
 			leadLen = len(leadWS)
 
-		flag = None   # might become 'any'
-
 		if leadWS:
-			while line:
-				# --- Check if the required leadWS is present
-				if not flag and (line[:leadLen] != leadWS):
-					raise SyntaxError("Missing leading whitespace")
-
-				flag = yield line[leadLen:]
-
-				if flag:
-					line = self.nextAnyLine(fh)
+			if debug:
+				print("   GEN: found leading whitespace")
+			while line != None:
+				if line:    # i.e. not the empty string
+					# --- Check if the required leadWS is present
+					if (line[0:leadLen] != leadWS):
+						raise SyntaxError("Missing leading whitespace")
+					yield line[leadLen:]
 				else:
-					line = self.nextNonBlankLine(fh)
+					yield ''
+				line = self.getLine(fh)
 		else:
-			while line:
+			if debug:
+				print("   GEN: no leading whitespace")
+			while line != None:
+				yield line
+				line = self.getLine(fh)
+		if debug:
+			print("   GEN: EOF (DONE)")
+		return
 
-				flag = yield line
+	# ------------------------------------------------------------------------
 
-				if flag:
-					line = self.nextAnyLine(fh)
-				else:
-					line = self.nextNonBlankLine(fh)
+	def getLine(self, fh):
+		# --- Retrieves next line, chomps off any trailing '\n',
+		#     removes any trailing whitespace, increments self.numLines
+		#     Returns None on EOF
+		line = fh.readline()
+		if not line:
+			return None
+		self.numLines += 1
+		return chomp(line).rstrip()
+
+	# ---------------------------------------------------------------------------
+
+	def chompComment(self, line):
+
+		reComment = self.reComment
+		if reComment:
+			line = re.sub(reComment, '', line)
+		return line.rstrip()
 
 	# ------------------------------------------------------------------------
 
@@ -278,40 +374,6 @@ class PLLParser():
 				marked = True
 
 		return (level, label, marked)
-
-	# ---------------------------------------------------------------------------
-
-	def nextAnyLine(self, fh):
-
-		line = fh.readline()
-		self.numLines += 1
-		if line:
-			return line
-		else:
-			return None
-
-	# ---------------------------------------------------------------------------
-
-	def nextNonBlankLine(self, fh):
-
-		reComment = self.reComment
-
-		line = fh.readline()
-		self.numLines += 1
-		if not line:
-			return None
-		if reComment:
-			line = re.sub(reComment, '', line)
-		line = line.rstrip()
-		while line == '':
-			line = fh.readline()
-			self.numLines += 1
-			if not line:
-				return None
-			if reComment:
-				line = re.sub(reComment, '', line)
-			line = line.rstrip()
-		return line
 
 # ---------------------------------------------------------------------------
 #                   UNIT TESTS
@@ -489,20 +551,21 @@ if runningUnitTests():
 
 	def test_7():
 
-		(tree, hSubTrees) = parsePLL('''
+		(node, hSubTrees) = parsePLL('''
 			bg  # a comment
 				color = \\#abcdef   # not a comment
 				graph
 			''',
 			reComment=re.compile(r'(?<!\\)#.*$'),  # ignore escaped '#' char
+			debug=False
 			)
 
-		n = ilen(tree.descendents())
+		n = ilen(node.descendents())
 		assert n == 3
 
-		assert tree['label'] == 'bg'
-		assert tree.firstChild['label'] == 'color = \\#abcdef'
-		assert tree.firstChild.nextSibling['label'] == 'graph'
+		assert node['label'] == 'bg'
+		assert node.firstChild['label'] == 'color = \\#abcdef'
+		assert node.firstChild.nextSibling['label'] == 'graph'
 
 	# ------------------------------------------------------------------------
 	# --- test hAttr key
@@ -604,6 +667,132 @@ if runningUnitTests():
 			['INTEGER', 23],
 			['OTHER', '+'],
 			['INTEGER', 19],
+			]
+
+		lTokens = list(node.nextSibling.tokens())
+		assert lTokens == [
+			['IDENTIFIER', 'print'],
+			['OTHER',  '('],
+			['IDENTIFIER', 'x'],
+			['OTHER', ')'],
+			]
+
+	# ------------------------------------------------------------------------
+	# Test creating a COMMENT token (but not used yet)
+
+	def test_11():
+
+		tokzr = RETokenizer()
+		assert tokzr
+		tokzr.add('IDENTIFIER', r'[A-Za-z][A-Za-z0-9_]*')
+		tokzr.add('INTEGER', r'\d+', 0, int)
+		tokzr.add('STRING',  r'"([^"]*)"', 1)
+		tokzr.add('STRING',  r"'([^']*)'", 1)
+		tokzr.add('COMMENT', r'#')
+
+		(node, hSubTrees) = parsePLL('''
+			x = 23 + 19 # word
+			print(x)    # word
+			''', tokenizer=tokzr)
+
+		lTokens = list(node.tokens())
+		assert lTokens == [
+			['IDENTIFIER', 'x'],
+			['OTHER',  '='],
+			['INTEGER', 23],
+			['OTHER', '+'],
+			['INTEGER', 19],
+			['COMMENT', '#'],
+			['IDENTIFIER', 'word'],
+			]
+
+		lTokens = list(node.nextSibling.tokens())
+		assert lTokens == [
+			['IDENTIFIER', 'print'],
+			['OTHER',  '('],
+			['IDENTIFIER', 'x'],
+			['OTHER', ')'],
+			['COMMENT', '#'],
+			['IDENTIFIER', 'word'],
+			]
+
+	# ------------------------------------------------------------------------
+	# Test using commentToken
+
+	def test_12():
+
+		tokzr = RETokenizer()
+		assert tokzr
+		tokzr.add('IDENTIFIER', r'[A-Za-z][A-Za-z0-9_]*')
+		tokzr.add('INTEGER', r'\d+', 0, int)
+		tokzr.add('STRING',  r'"([^"]*)"', 1)
+		tokzr.add('STRING',  r"'([^']*)'", 1)
+		tokzr.add('COMMENT', r'#')
+
+		(node, hSubTrees) = parsePLL('''
+			x = 23 + 19 # word
+			print(x)    # word
+			''',
+			tokenizer=tokzr,
+			commentToken='COMMENT',
+			)
+
+		lTokens = list(node.tokens())
+		assert lTokens == [
+			['IDENTIFIER', 'x'],
+			['OTHER',  '='],
+			['INTEGER', 23],
+			['OTHER', '+'],
+			['INTEGER', 19],
+			]
+
+		lTokens = list(node.nextSibling.tokens())
+		assert lTokens == [
+			['IDENTIFIER', 'print'],
+			['OTHER',  '('],
+			['IDENTIFIER', 'x'],
+			['OTHER', ')'],
+			]
+
+	# ------------------------------------------------------------------------
+	# Test using hereDocToken
+
+	def test_13():
+
+		tokzr = RETokenizer()
+		assert tokzr
+		tokzr.add('IDENTIFIER', r'[A-Za-z][A-Za-z0-9_]*')
+		tokzr.add('INTEGER', r'\d+', 0, int)
+		tokzr.add('STRING',  r'"([^"]*)"', 1)
+		tokzr.add('STRING',  r"'([^']*)'", 1)
+		tokzr.add('COMMENT', r'#')
+		tokzr.add('HEREDOC', r'<<<')
+
+		(node, hSubTrees) = parsePLL('''
+			s = <<<
+				abc
+				xyz
+
+			print(x)
+			''',
+			tokenizer=tokzr,
+			hereDocToken='HEREDOC',
+			)
+
+		lTokens = list(node.tokens())
+		prettyPrint(lTokens)
+		assert lTokens == [
+			['IDENTIFIER', 's'],
+			['OTHER',  '='],
+			['HEREDOC', 'abc\nxyz\n'],
+			]
+
+		lTokens = list(node.nextSibling.tokens())
+		assert lTokens == [
+			['IDENTIFIER', 'print'],
+			['OTHER',  '('],
+			['IDENTIFIER', 'x'],
+			['OTHER', ')'],
 			]
 
 # ---------------------------------------------------------------------------

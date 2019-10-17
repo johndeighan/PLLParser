@@ -4,8 +4,9 @@ import sys, re, pytest, collections
 from more_itertools import ilen
 
 from parserUtils import (
-	rmPrefix, isAllWhiteSpace, runningUnitTests, getVersion
+	rmPrefix, isAllWhiteSpace, runningUnitTests, getVersion, traceStr
 	)
+from RETokenizer import RETokenizer
 
 reAssign = re.compile(r'^(\S+)\s*\=\s*(.*)$')
 __version__ = getVersion()
@@ -24,8 +25,11 @@ class TreeNode(collections.abc.MutableMapping):
 
 	# ------------------------------------------------------------------------
 
-	def __init__(self, label):
+	def __init__(self, label, tokenizer=None):
 		super().__init__()
+
+		if tokenizer:
+			assert isinstance(tokenizer, RETokenizer)
 
 		# --- label cannot be all whitespace nor start with whitespace
 		if isAllWhiteSpace(label):
@@ -36,9 +40,25 @@ class TreeNode(collections.abc.MutableMapping):
 		self.hData = {
 			'label': label,
 			}
+		if tokenizer:
+			self.hData['tokenizer'] = tokenizer
 		self.parent = None
 		self.nextSibling = None
 		self.firstChild = None
+
+	# ------------------------------------------------------------------------
+
+	def tokens(self):
+
+		if 'lTokens' in self:
+			yield from self['lTokens']
+		elif 'tokenizer' in self:
+			assert 'label' in self
+			label = self['label']
+			tokenizer = self['tokenizer']
+
+			assert isinstance(tokenizer, RETokenizer)
+			yield from tokenizer.tokens(label)
 
 	# ------------------------------------------------------------------------
 	#    Multiple ways to build up a tree structure
@@ -204,17 +224,6 @@ class TreeNode(collections.abc.MutableMapping):
 			cur = cur.nextSibling
 		return s
 
-	def tokens(self):
-		# --- If it has key lTokens, it should be a list of tokens
-
-		lTokens = self['lTokens']
-		if not lTokens:
-			return
-
-		assert type(lTokens) == list
-		for item in lTokens:
-			yield item
-
 	# ------------------------------------------------------------------------
 	#      Utility Methods
 	# ------------------------------------------------------------------------
@@ -257,12 +266,18 @@ class TreeNode(collections.abc.MutableMapping):
 		return
 
 	def asDebugString(self):
-		# --- This should also "escape" any control characters
 		label = self['label']
 		if self.reSimpleLabel.match(label):
-			return label
+			s = label
 		else:
-			return "'" + label + "'"
+			s = "'" + traceStr(label) + "'"
+		if self.firstChild:
+			fc = self.firstChild['label']
+			s += f" FC = '{fc}'"
+		if self.nextSibling:
+			ns = self.nextSibling['label']
+			s += f" NS = '{ns}'"
+		return s
 
 # ---------------------------------------------------------------------------
 

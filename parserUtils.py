@@ -1,6 +1,6 @@
 # parserUtils.py
 
-import sys, re, io, pytest, json
+import sys, re, io, pytest, json, pprint
 
 reAllWS      = re.compile(r'^\s*$')
 reLeadWS     = re.compile(r'^([\t\ ]+)')   # don't consider '\n'
@@ -26,6 +26,13 @@ def getVersion(filepath='./version.json'):
 
 # ---------------------------------------------------------------------------
 
+def prettyPrint(x):
+
+	pp = pprint.PrettyPrinter(indent=3)
+	pp.pprint(x)
+
+# ---------------------------------------------------------------------------
+
 def runningUnitTests():
 
 	return (sys.argv[0].find('pytest') > -1)
@@ -48,13 +55,14 @@ def chomp2(line):
 	line = chomp(line)
 	result = reChomp2.match(line)
 	assert result    # should always match
-	return result.group(1), result.group(2)  # prefix, label
+	return (result.group(1), result.group(2))  # prefix, label
 
 # ---------------------------------------------------------------------------
 
 def rmPrefix(lLines, *, debug=False, skipEmptyLines=True):
 	# --- Normally lLines is a list of strings, but you can pass in
-	#        a string with internal '\n' characters
+	#        a string with internal '\n' characters, which will be
+	#        split after each '\n' character
 	#
 	# --- A  line consisting of only whitespace, is considered empty
 	#     leading and trailing empty lines don't appear in output
@@ -424,3 +432,22 @@ if runningUnitTests:
 		assert ("   abc xyz  ".split()[1] == 'xyz')
 		assert ("   房子 窗口  ".split()[0] == '房子')
 		assert ("   房子 窗口  ".split()[1] == '窗口')
+
+	def test_9():
+		# --- After stripping off '\n', if any
+		#     chomp also does an rstrip()
+
+		assert chomp('abc')     == 'abc'
+		assert chomp('abc\n')   == 'abc'
+		assert chomp('abc  \n') == 'abc'
+		assert chomp('abc\t\n') == 'abc'
+		assert chomp('abc\t\n') == 'abc'
+		assert chomp('abc ')    == 'abc'
+		assert chomp('abc\n\n') == 'abc'
+
+	def test_10():
+
+		assert chomp2('abc')     == ('', 'abc')
+		assert chomp2('\tabc')   == ('\t', 'abc')
+		assert chomp2('abc\n')   == ('', 'abc')
+		assert chomp2('\tabc\n') == ('\t', 'abc')
