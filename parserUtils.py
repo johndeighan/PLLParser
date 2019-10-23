@@ -18,7 +18,6 @@ hSpecial = {
 
 __version__ = "0.3.2"
 
-
 # ---------------------------------------------------------------------------
 
 def getVersion():
@@ -293,7 +292,7 @@ def traceStr(str, *, maxchars=0, detailed=False):
 #                  UNIT TESTS
 # ---------------------------------------------------------------------------
 
-if runningUnitTests:
+if runningUnitTests():
 
 	def test_1():
 		with pytest.raises(TypeError):

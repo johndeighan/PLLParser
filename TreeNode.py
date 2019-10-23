@@ -294,7 +294,7 @@ def nodeStr(node):
 #                   UNIT TESTS
 # ---------------------------------------------------------------------------
 
-if runningUnitTests:
+if runningUnitTests():
 
 	# --- test tree ---
 	#	top

@@ -91,7 +91,7 @@ class RETokenizer():
 #                   UNIT TESTS
 # ---------------------------------------------------------------------------
 
-if runningUnitTests:
+if runningUnitTests():
 
 	def test_1():
 
